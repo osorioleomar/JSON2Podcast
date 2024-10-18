@@ -80,6 +80,64 @@ def generate_audio(text, voice_id, voice_settings):
     audio_data = b''.join(chunk for chunk in audio_stream)
     return AudioSegment.from_mp3(io.BytesIO(audio_data))
 
+# New function for Step 0: Instructions
+def step_0_instructions():
+    st.header("Welcome to the Podcast Generator")
+    st.write("""
+    This application helps you create a podcast using AI-generated voices. Follow these steps to use the app:
+
+    1. **Get an ElevenLabs API Key:**
+       - Go to [ElevenLabs](https://elevenlabs.io/) and sign up for an account.
+       - Navigate to your profile settings to find your API key.
+
+    2. **Generate a Transcript:**
+       - Use an AI assistant like ChatGPT, Claude, or Gemini to create your podcast script.
+       - Use the following prompt to generate your script:
+    """)
+    
+    st.code("""
+    1. Extract key points, definitions, and interesting facts from the given financial press release.
+    2. Transform the information into a lively, engaging, and informative podcast dialogue in the style of NPR.
+    3. Format the script as a JSON file with alternating speakers (Alex and Sarah).
+    4. Structure each dialogue entry as:
+    {
+    "speaker": "Name",
+    "text": "Dialog"
+    }
+    5. Make the podcast sound like it's from Nordea Bank, with the speakers being part of Nordea's investor relations team.
+    6. Define all terms used carefully for a broad audience of listeners.
+    7. Add human touches to the dialogue, such as casual banter and pauses.
+    8. Use ellipsis (...) to indicate pauses instead of XML-style break tags.
+    9. Ensure the content is informative while remaining accessible to a general audience.
+    10. Cover key financial metrics, explain their significance, and provide simple analogies to help listeners understand complex concepts.
+    11. Maintain a balance between presenting positive results and acknowledging the need for cautious interpretation of financial data.
+    """, language="markdown")
+
+    st.write("""
+    3. **Prepare Your JSON:**
+       - The AI will generate a JSON-formatted script. It should look like this:
+    """)
+
+    st.code("""
+    [
+        {"speaker": "Alex", "text": "Welcome to Nordea's financial update..."},
+        {"speaker": "Sarah", "text": "Thanks, Alex. Let's dive into the latest numbers..."},
+        ...
+    ]
+    """, language="json")
+
+    st.write("""
+    4. **Navigate Through the App:**
+       - Use the navigation panel on the left to move through each step of the podcast creation process.
+       - Start by entering your ElevenLabs API key, then proceed through script input, editing, configuration, audio generation, and finalization.
+
+    Click the 'Proceed to API Key Input' button below when you're ready to start creating your podcast!
+    """)
+
+    if st.button("Proceed to API Key Input"):
+        st.session_state.current_step = 1
+
+
 # Step 0: API Key Input
 def step_0():
     st.header("Enter Your ElevenLabs API Key")
@@ -246,7 +304,7 @@ def step_6():
             mime="audio/mp3"
         )
 
-# Main Streamlit app
+# Update the main function
 def main():
     st.set_page_config(layout="wide", page_title="Podcast Generator")
     st.title("Podcast Generator")
@@ -257,7 +315,7 @@ def main():
     st.sidebar.title("Navigation")
     step_buttons = [
         st.sidebar.button(f"Step {i}: {step}") for i, step in enumerate([
-            "API Key Input", "Input Script", "Edit Script", "Configuration", 
+            "Instructions", "API Key Input", "Input Script", "Edit Script", "Configuration", 
             "Generate Audio", "Finalize", "Play and Download"
         ])
     ]
@@ -267,19 +325,22 @@ def main():
     
     # Display current step
     if st.session_state.current_step == 0:
-        step_0()
+        step_0_instructions()
     elif st.session_state.current_step == 1:
-        step_1()
+        step_0()  # This is now the API Key Input step
     elif st.session_state.current_step == 2:
-        step_2()
+        step_1()
     elif st.session_state.current_step == 3:
-        step_3()
+        step_2()
     elif st.session_state.current_step == 4:
-        step_4()
+        step_3()
     elif st.session_state.current_step == 5:
-        step_5()
+        step_4()
     elif st.session_state.current_step == 6:
+        step_5()
+    elif st.session_state.current_step == 7:
         step_6()
+
 
 if __name__ == "__main__":
     main()
