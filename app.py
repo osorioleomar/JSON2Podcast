@@ -5,6 +5,7 @@ from pydub import AudioSegment
 from elevenlabs import ElevenLabs, VoiceSettings
 import requests
 import os
+import base64
 
 # Initialize session state for API key
 if 'api_key' not in st.session_state:
@@ -47,18 +48,20 @@ def init_session_state():
         st.session_state.config = {
             'intro_text': '',
             'intro_voice': '',
+            'outro_text': '',
+            'outro_voice': '',
             'intro_music': None,
             'podcasters': {},
             'voice_settings': {
-                'stability': 0.7,
-                'similarity_boost': 0.75,
-                'style': 0.4,
+                'stability': 0.5,
+                'similarity_boost': 0.8,
+                'style': 0.1,
             }
         }
     if 'audio_segments' not in st.session_state:
         st.session_state.audio_segments = []
     if 'current_step' not in st.session_state:
-        st.session_state.current_step = 1
+        st.session_state.current_step = 0
     if 'available_voices' not in st.session_state:
         st.session_state.available_voices = {}
 
@@ -75,12 +78,19 @@ def generate_audio(text, voice_id, voice_settings):
         optimize_streaming_latency=0,
         output_format="mp3_44100_128",
         text=text,
-        voice_settings=settings
+        voice_settings=settings,
+        model_id="eleven_multilingual_v2",
     )
     audio_data = b''.join(chunk for chunk in audio_stream)
     return AudioSegment.from_mp3(io.BytesIO(audio_data))
 
-# New function for Step 0: Instructions
+# Function to display masked API key
+def display_masked_api_key():
+    if st.session_state.api_key:
+        masked_key = st.session_state.api_key[:4] + "*" * (len(st.session_state.api_key) - 8) + st.session_state.api_key[-4:]
+        st.sidebar.text(f"API Key: {masked_key}")
+
+# Step 0: Instructions
 def step_0_instructions():
     st.header("Welcome to the Podcast Generator")
     st.write("""
@@ -137,63 +147,98 @@ def step_0_instructions():
     if st.button("Proceed to API Key Input"):
         st.session_state.current_step = 1
 
-
-# Step 0: API Key Input
-def step_0():
-    st.header("Enter Your ElevenLabs API Key")
+# Step 1: API Key Input
+def step_1():
+    st.header("Step 1: Enter Your ElevenLabs API Key")
     api_key = st.text_input("API Key", type="password")
     if st.button("Submit API Key"):
         st.session_state.api_key = api_key
         st.session_state.available_voices = get_available_voices()
         st.success("API Key submitted successfully!")
-        st.session_state.current_step = 1
+        st.session_state.current_step = 2
 
-# Step 1: JSON Input
-def step_1():
-    st.header("Step 1: Input Script")
-    json_input = st.text_area("Paste your JSON script here:", height=300)
-    if st.button("Load Script"):
-        try:
-            script_data = json.loads(json_input)
-            if isinstance(script_data, list) and all(isinstance(item, dict) and 'speaker' in item and 'text' in item for item in script_data):
-                st.session_state.script = script_data
-                st.success("Script loaded successfully!")
-                st.session_state.current_step = 2
-            else:
-                st.error("Invalid script format. Please ensure your JSON is a list of objects with 'speaker' and 'text' keys.")
-        except json.JSONDecodeError:
-            st.error("Invalid JSON. Please check your input.")
-
-# Step 2: Display and Edit Script
+# Step 2: JSON Input
 def step_2():
-    st.header("Step 2: Edit Script")
-    for i, line in enumerate(st.session_state.script):
-        with st.expander(f"{line['speaker']}: {line['text'][:50]}...", expanded=True):
-            st.session_state.script[i]['speaker'] = st.text_input(f"Speaker {i+1}", line['speaker'], key=f"speaker_{i}")
-            st.session_state.script[i]['text'] = st.text_area(f"Edit {line['speaker']}'s line", line['text'], key=f"line_{i}")
-    if st.button("Proceed to Configuration"):
-        st.session_state.current_step = 3
-
-# Step 3: Configuration
-def step_3():
-    st.header("Step 3: Configuration")
-    st.session_state.config['intro_text'] = st.text_area("Intro Text:", st.session_state.config['intro_text'])
-    st.session_state.config['intro_voice'] = st.selectbox("Intro Voice:", list(st.session_state.available_voices.keys()))
+    st.header("Step 2: Input Script")
+    json_input = st.text_area("Paste your JSON script here (format: [{'speaker': 'name', 'text': 'content'}, ...]):", height=300)
     
-    # Play voice sample for intro voice
-    if st.button("Play Intro Voice Sample"):
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Load Script"):
+            try:
+                script_data = json.loads(json_input)
+                if isinstance(script_data, list) and all(isinstance(item, dict) and 'speaker' in item and 'text' in item for item in script_data):
+                    st.session_state.script = script_data
+                    st.success("Script loaded successfully!")
+                    st.session_state.current_step = 3
+                else:
+                    st.error("Invalid script format. Please ensure your JSON is a list of objects with 'speaker' and 'text' keys.")
+            except json.JSONDecodeError:
+                st.error("Invalid JSON. Please check your input.")
+    
+    with col2:
+        if st.button("Export Script"):
+            script_json = json.dumps(st.session_state.script, indent=2)
+            b64 = base64.b64encode(script_json.encode()).decode()
+            href = f'<a href="data:application/json;base64,{b64}" download="podcast_script.json">Download JSON</a>'
+            st.markdown(href, unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader("Import Script from JSON", type="json")
+    if uploaded_file is not None:
+        try:
+            imported_script = json.load(uploaded_file)
+            if isinstance(imported_script, list) and all(isinstance(item, dict) and 'speaker' in item and 'text' in item for item in imported_script):
+                st.session_state.script = imported_script
+                st.success("Script imported successfully!")
+                st.session_state.current_step = 3
+            else:
+                st.error("Invalid script format in the imported file.")
+        except json.JSONDecodeError:
+            st.error("Invalid JSON in the imported file.")
+
+# Step 3: Display and Edit Script
+def step_3():
+    st.header("Step 3: Edit Script")
+    for i, line in enumerate(st.session_state.script):
+        with st.expander(f"Dialog {i+1}", expanded=True):
+            st.session_state.script[i]['speaker'] = st.text_input("Speaker", line['speaker'], key=f"speaker_{i}")
+            st.session_state.script[i]['text'] = st.text_area("Dialog", line['text'], key=f"line_{i}", height=100)
+    if st.button("Proceed to Configuration"):
+        st.session_state.current_step = 4
+
+# Step 4: Configuration
+def step_4():
+    st.header("Step 4: Configuration")
+    
+    st.subheader("Intro Configuration")
+    st.session_state.config['intro_text'] = st.text_area("Intro Text:", st.session_state.config['intro_text'])
+    st.session_state.config['intro_voice'] = st.selectbox("Intro Voice:", list(st.session_state.available_voices.keys()), key="intro_voice")
+    
+    if st.button("Play Intro Voice Sample", key="intro_sample"):
         voice_data = st.session_state.available_voices[st.session_state.config['intro_voice']]
         if voice_data['samples']:
             sample = get_voice_sample(voice_data['voice_id'], voice_data['samples'][0]['sample_id'])
             if sample:
                 st.audio(sample, format="audio/mp3")
     
+    st.subheader("Outro Configuration")
+    st.session_state.config['outro_text'] = st.text_area("Outro Text:", st.session_state.config['outro_text'])
+    st.session_state.config['outro_voice'] = st.selectbox("Outro Voice:", list(st.session_state.available_voices.keys()), key="outro_voice")
+    
+    if st.button("Play Outro Voice Sample", key="outro_sample"):
+        voice_data = st.session_state.available_voices[st.session_state.config['outro_voice']]
+        if voice_data['samples']:
+            sample = get_voice_sample(voice_data['voice_id'], voice_data['samples'][0]['sample_id'])
+            if sample:
+                st.audio(sample, format="audio/mp3")
+    
+    st.markdown("You can check the voice samples on [ElevenLabs](https://elevenlabs.io/).")
+    
     st.subheader("Podcasters")
     podcasters = set(line['speaker'] for line in st.session_state.script)
     for podcaster in podcasters:
         st.session_state.config['podcasters'][podcaster] = st.selectbox(f"Voice for {podcaster}:", list(st.session_state.available_voices.keys()), key=f"voice_{podcaster}")
-        # Play voice sample for each podcaster
-        if st.button(f"Play {podcaster} Voice Sample"):
+        if st.button(f"Play {podcaster} Voice Sample", key=f"sample_{podcaster}"):
             voice_data = st.session_state.available_voices[st.session_state.config['podcasters'][podcaster]]
             if voice_data['samples']:
                 sample = get_voice_sample(voice_data['voice_id'], voice_data['samples'][0]['sample_id'])
@@ -207,12 +252,17 @@ def step_3():
     
     st.session_state.config['intro_music'] = st.file_uploader("Upload Intro Music (MP3)", type="mp3")
     
+    st.markdown("### Upload Intro Music")
+    st.markdown("You can download royalty-free intro music from the following sites:")
+    st.markdown("- [Chosic](https://www.chosic.com/free-music/intro/)")
+    st.markdown("- [Pixabay](https://pixabay.com/music/search/intro/)")
+    
     if st.button("Proceed to Audio Generation"):
-        st.session_state.current_step = 4
+        st.session_state.current_step = 5
 
-# Step 4: Generate Audio
-def step_4():
-    st.header("Step 4: Generate Audio")
+# Step 5: Generate Audio
+def step_5():
+    st.header("Step 5: Generate Audio")
     if st.button("Generate All Audio"):
         st.session_state.audio_segments = []
         
@@ -227,12 +277,23 @@ def step_4():
         
         # Generate dialog audio
         for i, line in enumerate(st.session_state.script):
+            speaker = line['speaker']
+            voice_name = st.session_state.config['podcasters'][speaker]
             audio = generate_audio(
                 line['text'],
-                st.session_state.available_voices[st.session_state.config['podcasters'][line['speaker']]]['voice_id'],
+                st.session_state.available_voices[voice_name]['voice_id'],
                 st.session_state.config['voice_settings']
             )
             st.session_state.audio_segments.append((f"Line {i+1}", audio))
+        
+# Generate outro audio
+        if st.session_state.config['outro_text']:
+            outro_audio = generate_audio(
+                st.session_state.config['outro_text'],
+                st.session_state.available_voices[st.session_state.config['outro_voice']]['voice_id'],
+                st.session_state.config['voice_settings']
+            )
+            st.session_state.audio_segments.append(("Outro", outro_audio))
         
         st.success("Audio generated successfully!")
     
@@ -243,8 +304,11 @@ def step_4():
         
         if label == "Intro":
             new_text = st.text_area(f"Edit {label} text:", st.session_state.config['intro_text'], key=f"edit_{i}")
+        elif label == "Outro":
+            new_text = st.text_area(f"Edit {label} text:", st.session_state.config['outro_text'], key=f"edit_{i}")
         else:
             line_index = int(label.split()[1]) - 1
+            speaker = st.session_state.script[line_index]['speaker']
             new_text = st.text_area(f"Edit {label} text:", st.session_state.script[line_index]['text'], key=f"edit_{i}")
         
         if st.button(f"Regenerate {label}", key=f"regen_{i}"):
@@ -255,11 +319,20 @@ def step_4():
                     st.session_state.config['voice_settings']
                 )
                 st.session_state.config['intro_text'] = new_text
-            else:
-                line_index = int(label.split()[1]) - 1
+            elif label == "Outro":
                 new_audio = generate_audio(
                     new_text,
-                    st.session_state.available_voices[st.session_state.config['podcasters'][st.session_state.script[line_index]['speaker']]]['voice_id'],
+                    st.session_state.available_voices[st.session_state.config['outro_voice']]['voice_id'],
+                    st.session_state.config['voice_settings']
+                )
+                st.session_state.config['outro_text'] = new_text
+            else:
+                line_index = int(label.split()[1]) - 1
+                speaker = st.session_state.script[line_index]['speaker']
+                voice_name = st.session_state.config['podcasters'][speaker]
+                new_audio = generate_audio(
+                    new_text,
+                    st.session_state.available_voices[voice_name]['voice_id'],
                     st.session_state.config['voice_settings']
                 )
                 st.session_state.script[line_index]['text'] = new_text
@@ -267,11 +340,11 @@ def step_4():
             st.rerun()
     
     if st.button("Proceed to Finalization"):
-        st.session_state.current_step = 5
+        st.session_state.current_step = 6
 
-# Step 5: Finalize
-def step_5():
-    st.header("Step 5: Finalize")
+# Step 6: Finalize
+def step_6():
+    st.header("Step 6: Finalize")
     if st.button("Finalize Podcast"):
         full_audio = AudioSegment.empty()
         
@@ -289,11 +362,11 @@ def step_5():
         output_path = "generated_podcast.mp3"
         full_audio.export(output_path, format="mp3")
         st.success("Podcast finalized successfully!")
-        st.session_state.current_step = 6
+        st.session_state.current_step = 7
 
-# Step 6: Play and Download
-def step_6():
-    st.header("Step 6: Play and Download")
+# Step 7: Play and Download
+def step_7():
+    st.header("Step 7: Play and Download")
     output_path = "generated_podcast.mp3"
     st.audio(output_path, format="audio/mp3")
     with open(output_path, "rb") as file:
@@ -304,12 +377,13 @@ def step_6():
             mime="audio/mp3"
         )
 
-# Update the main function
+# Main Streamlit app
 def main():
     st.set_page_config(layout="wide", page_title="Podcast Generator")
     st.title("Podcast Generator")
     
     init_session_state()
+    display_masked_api_key()
     
     # Navigation
     st.sidebar.title("Navigation")
@@ -327,20 +401,19 @@ def main():
     if st.session_state.current_step == 0:
         step_0_instructions()
     elif st.session_state.current_step == 1:
-        step_0()  # This is now the API Key Input step
-    elif st.session_state.current_step == 2:
         step_1()
-    elif st.session_state.current_step == 3:
+    elif st.session_state.current_step == 2:
         step_2()
-    elif st.session_state.current_step == 4:
+    elif st.session_state.current_step == 3:
         step_3()
-    elif st.session_state.current_step == 5:
+    elif st.session_state.current_step == 4:
         step_4()
-    elif st.session_state.current_step == 6:
+    elif st.session_state.current_step == 5:
         step_5()
-    elif st.session_state.current_step == 7:
+    elif st.session_state.current_step == 6:
         step_6()
-
+    elif st.session_state.current_step == 7:
+        step_7()
 
 if __name__ == "__main__":
     main()
